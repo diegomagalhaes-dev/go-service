@@ -5,6 +5,8 @@ SHELL = $(if $(wildcard $(SHELL_PATH)),/bin/ash,/bin/bash)
 run:
 	go run app/services/sales-api/main.go | go run app/tooling/logfmt/main.go
 
+run-help:
+	go run app/services/sales-api/main.go --help | go run app/tooling/logfmt/main.go
 # ==============================================================================
 # Define dependencies
 
@@ -81,6 +83,7 @@ dev-up:
 		--name $(KIND_CLUSTER) \
 		--config zarf/k8s/dev/kind-config.yaml
 
+	kubectl config use-context kind-$(KIND_CLUSTER)
 	kubectl wait --timeout=120s --namespace=local-path-storage --for=condition=Available deployment/local-path-provisioner
 
 dev-down:
@@ -98,11 +101,9 @@ dev-apply:
 dev-restart:
 	kubectl rollout restart deployment --namespace=$(NAMESPACE) $(APP)
 
-dev-update:
-	all dev-load dev-restart
+dev-update: all dev-load dev-restart
 
-dev-update-apply:
-	all dev-load dev-apply
+dev-update-apply: service dev-load dev-apply
 
 # ------------------------------------------------------------------------------
 
@@ -121,3 +122,10 @@ dev-status:
 	kubectl get nodes -o wide
 	kubectl get svc -o wide
 	kubectl get pods -o wide --watch --all-namespaces
+
+# ==============================================================================
+# Modules support
+
+tidy:
+	go mod tidy
+	go mod vendor
