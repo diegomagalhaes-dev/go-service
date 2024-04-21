@@ -7,6 +7,9 @@ run:
 
 run-help:
 	go run app/services/sales-api/main.go --help | go run app/tooling/logfmt/main.go
+
+curl:
+	curl -il http://localhost:3000/hack
 # ==============================================================================
 # Define dependencies
 
