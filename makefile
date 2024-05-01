@@ -10,6 +10,9 @@ run-help:
 
 curl:
 	curl -il http://localhost:3000/hack
+
+load:
+	hey -m GET -c 100 -n 100000 "http://localhost:3000/hack"
 # ==============================================================================
 # Define dependencies
 
@@ -50,6 +53,7 @@ dev-brew:
 	brew list kustomize || brew install kustomize
 	brew list pgcli || brew install pgcli
 	brew list watch || brew instal watch
+	brew list hey || brew install hey
 
 dev-docker:
 	docker pull $(GOLANG)
