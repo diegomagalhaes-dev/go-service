@@ -19,3 +19,7 @@ vendor/
 
 # Go workspace file
 go.work
+
+# Sensive content
+zarf/keys/*
+!zarf/keys/.gitkeep
