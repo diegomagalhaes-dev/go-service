@@ -27,18 +27,55 @@ spec:
       containers:
       - name: sales-api
         image: service-image
-        
+
         ports:
         - name: sales-api
           containerPort: 3000
         - name: sales-api-debug
           containerPort: 4000
 
+        readinessProbe:
+          httpGet:
+            path: /v1/readiness
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 2
+
+        livenessProbe:
+          httpGet:
+            path: /v1/liveness
+            port: 3000
+          initialDelaySeconds: 2
+          periodSeconds: 5
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 2
+
         env:
         - name: GOMAXPROCS
           valueFrom:
             resourceFieldRef:
               resource: limits.cpu
+
+        - name: KUBERNETES_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: KUBERNETES_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: KUBERNETES_POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: KUBERNETES_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
 
 ---
 
@@ -47,6 +84,7 @@ kind: Service
 metadata:
   name: sales-api
   namespace: sales-system
+
 spec:
   selector:
     app: sales
