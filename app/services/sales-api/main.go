@@ -15,7 +15,9 @@ import (
 	"github.com/ardanlabs/conf/v3"
 	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/handlers"
 	v1 "github.com/diegomagalhaes-dev/go-service/business/web/v1"
+	"github.com/diegomagalhaes-dev/go-service/business/web/v1/auth"
 	"github.com/diegomagalhaes-dev/go-service/business/web/v1/debug"
+	"github.com/diegomagalhaes-dev/go-service/foundation/keystore"
 	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
 	"github.com/diegomagalhaes-dev/go-service/foundation/web"
 )
@@ -67,6 +69,11 @@ func run(ctx context.Context, log *logger.Logger) error {
 			APIHost         string        `conf:"default:0.0.0.0:3000"`
 			DebugHost       string        `conf:"default:0.0.0.0:4000"`
 		}
+		Auth struct {
+			KeysFolder string `conf:"default:zarf/keys/"`
+			ActiveKID  string `conf:"default:54bb2165-71e1-41a6-af3e-7da4a0e1e2c1"`
+			Issuer     string `conf:"default:service project"`
+		}
 	}{
 		Version: conf.Version{
 			Build: build,
@@ -86,6 +93,7 @@ func run(ctx context.Context, log *logger.Logger) error {
 
 	// -------------------------------------------------------------------------
 	// App Starting
+
 	log.Info(ctx, "starting service", "version", build)
 	defer log.Info(ctx, "shutdown complete")
 
@@ -94,10 +102,33 @@ func run(ctx context.Context, log *logger.Logger) error {
 		return fmt.Errorf("generating config for output: %w", err)
 	}
 	log.Info(ctx, "startup", "config", out)
+
 	expvar.NewString("build").Set(build)
 
 	// -------------------------------------------------------------------------
+	// Initialize authentication support
+
+	log.Info(ctx, "startup", "status", "initializing authentication support")
+
+	// Simple keystore versus using Vault.
+	ks, err := keystore.NewFS(os.DirFS(cfg.Auth.KeysFolder))
+	if err != nil {
+		return fmt.Errorf("reading keys: %w", err)
+	}
+
+	authCfg := auth.Config{
+		Log:       log,
+		KeyLookup: ks,
+	}
+
+	auth, err := auth.New(authCfg)
+	if err != nil {
+		return fmt.Errorf("constructing auth: %w", err)
+	}
+
+	// -------------------------------------------------------------------------
 	// Start Debug Service
+
 	go func() {
 		log.Info(ctx, "startup", "status", "debug v1 router started", "host", cfg.Web.DebugHost)
 
@@ -105,6 +136,7 @@ func run(ctx context.Context, log *logger.Logger) error {
 			log.Error(ctx, "shutdown", "status", "debug v1 router closed", "host", cfg.Web.DebugHost, "msg", err)
 		}
 	}()
+
 	// -------------------------------------------------------------------------
 	// Start API Service
 
@@ -117,6 +149,7 @@ func run(ctx context.Context, log *logger.Logger) error {
 		Build:    build,
 		Shutdown: shutdown,
 		Log:      log,
+		Auth:     auth,
 	}
 
 	apiMux := v1.APIMux(cfgMux, handlers.Routes{})

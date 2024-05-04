@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/diegomagalhaes-dev/go-service/business/web/v1/auth"
 	"github.com/diegomagalhaes-dev/go-service/business/web/v1/response"
 	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
 	"github.com/diegomagalhaes-dev/go-service/foundation/web"
@@ -25,6 +26,12 @@ func Errors(log *logger.Logger) web.Middleware {
 						Error: reqErr.Error(),
 					}
 					status = reqErr.Status
+
+				case auth.IsAuthError(err):
+					er = response.ErrorDocument{
+						Error: http.StatusText(http.StatusUnauthorized),
+					}
+					status = http.StatusUnauthorized
 
 				default:
 					er = response.ErrorDocument{

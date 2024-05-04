@@ -40,7 +40,6 @@ func (a *App) Handle(method string, path string, handler Handler, mw ...Middlewa
 			TraceID: uuid.NewString(),
 			Now:     time.Now().UTC(),
 		}
-
 		ctx := SetValues(r.Context(), &v)
 
 		if err := handler(ctx, w, r); err != nil {
@@ -49,7 +48,6 @@ func (a *App) Handle(method string, path string, handler Handler, mw ...Middlewa
 				return
 			}
 		}
-
 	}
 
 	a.ContextMux.Handle(method, path, h)

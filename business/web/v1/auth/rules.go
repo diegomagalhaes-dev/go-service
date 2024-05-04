@@ -17,6 +17,9 @@ const (
 )
 
 var (
+	//go:embed rego/authentication.rego
 	opaAuthentication string
-	opaAuthorization  string
+
+	//go:embed rego/authorization.rego
+	opaAuthorization string
 )

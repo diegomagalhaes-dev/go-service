@@ -12,7 +12,6 @@ import (
 
 func Hack(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 	if n := rand.Intn(100) % 2; n == 0 {
-		panic("OH MY GOODNESS WE PANIC'D")
 		return response.NewError(errors.New("TRUST ERROR"), http.StatusBadRequest)
 	}
 
