@@ -2,11 +2,14 @@ package user
 
 import (
 	"context"
+	"fmt"
 	"net/mail"
+	"time"
 
 	"github.com/diegomagalhaes-dev/go-service/business/data/order"
 	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Storer interface {
@@ -34,5 +37,28 @@ func NewCore(log *logger.Logger, storer Storer) *Core {
 
 func (c *Core) Create(ctx context.Context, nu NewUser) (User, error) {
 
-	return User{}, nil
+	hash, err := bcrypt.GenerateFromPassword([]byte(nu.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return User{}, fmt.Errorf("generatefrompassword: %w", err)
+	}
+
+	now := time.Now()
+
+	usr := User{
+		ID:           uuid.New(),
+		Name:         nu.Name,
+		Email:        nu.Email,
+		PasswordHash: hash,
+		Roles:        nu.Roles,
+		Department:   nu.Department,
+		Enabled:      true,
+		DateCreated:  now,
+		DateUpdated:  now,
+	}
+
+	if err := c.storer.Create(ctx, usr); err != nil {
+		return User{}, fmt.Errorf("create: %w", err)
+	}
+
+	return usr, nil
 }
