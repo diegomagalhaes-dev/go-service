@@ -4,26 +4,40 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"time"
 
+	db "github.com/diegomagalhaes-dev/go-service/business/data/dbsql/pgx"
 	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
 	"github.com/diegomagalhaes-dev/go-service/foundation/web"
+	"github.com/jmoiron/sqlx"
 )
 
 type Handlers struct {
 	log   *logger.Logger
 	build string
+	db    *sqlx.DB
 }
 
-func New(build string, log *logger.Logger) *Handlers {
+func New(build string, log *logger.Logger, db *sqlx.DB) *Handlers {
 	return &Handlers{
 		build: build,
 		log:   log,
+		db:    db,
 	}
 }
 
 func (h *Handlers) Readiness(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
 	status := "ok"
 	statusCode := http.StatusOK
+
+	if err := db.StatusCheck(ctx, h.db); err != nil {
+		status = "db not ready"
+		statusCode = http.StatusInternalServerError
+		h.log.Info(ctx, "readiness failure", "status", status)
+	}
 
 	data := struct {
 		Status string `json:"status"`
