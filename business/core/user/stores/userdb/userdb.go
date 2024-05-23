@@ -144,3 +144,26 @@ func (s *Store) QueryByEmail(ctx context.Context, email mail.Address) (user.User
 
 	return usr, nil
 }
+
+// Count returns the total number of users in the DB.
+func (s *Store) Count(ctx context.Context, filter user.QueryFilter) (int, error) {
+	data := map[string]interface{}{}
+
+	const q = `
+	SELECT
+		count(1)
+	FROM
+		users`
+
+	buf := bytes.NewBufferString(q)
+	s.applyFilter(filter, data, buf)
+
+	var count struct {
+		Count int `db:"count"`
+	}
+	if err := db.NamedQueryStruct(ctx, s.log, s.db, buf.String(), data, &count); err != nil {
+		return 0, fmt.Errorf("namedquerystruct: %w", err)
+	}
+
+	return count.Count, nil
+}

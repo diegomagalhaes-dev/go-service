@@ -24,6 +24,7 @@ type Storer interface {
 	Query(ctx context.Context, filter QueryFilter, orderBy order.By, pageNumber int, rowsPerPage int) ([]User, error)
 	QueryByID(ctx context.Context, userID uuid.UUID) (User, error)
 	QueryByEmail(ctx context.Context, email mail.Address) (User, error)
+	Count(ctx context.Context, filter QueryFilter) (int, error)
 }
 type Core struct {
 	storer Storer
@@ -92,4 +93,9 @@ func (c *Core) QueryByEmail(ctx context.Context, email mail.Address) (User, erro
 	}
 
 	return user, nil
+}
+
+// Count returns the total number of users.
+func (c *Core) Count(ctx context.Context, filter QueryFilter) (int, error) {
+	return c.storer.Count(ctx, filter)
 }

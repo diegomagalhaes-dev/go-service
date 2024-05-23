@@ -7,6 +7,14 @@ type ErrorDocument struct {
 	Fields map[string]string `json:"fields,omitempty"`
 }
 
+// PageDocument is the form used for API responses from query API calls.
+type PageDocument[T any] struct {
+	Items       []T `json:"items"`
+	Total       int `json:"total"`
+	Page        int `json:"page"`
+	RowsPerPage int `json:"rowsPerPage"`
+}
+
 type Error struct {
 	Err    error
 	Status int
@@ -31,4 +39,14 @@ func GetError(err error) *Error {
 		return nil
 	}
 	return re
+}
+
+// NewPageDocument constructs a response value for a web paging response.
+func NewPageDocument[T any](items []T, total int, page int, rowsPrePage int) PageDocument[T] {
+	return PageDocument[T]{
+		Items:       items,
+		Total:       total,
+		Page:        page,
+		RowsPerPage: rowsPrePage,
+	}
 }
