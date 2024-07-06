@@ -10,16 +10,19 @@ import (
 	"github.com/diegomagalhaes-dev/go-service/business/core/user"
 	db "github.com/diegomagalhaes-dev/go-service/business/data/dbsql/pgx"
 	"github.com/diegomagalhaes-dev/go-service/business/data/order"
+	"github.com/diegomagalhaes-dev/go-service/business/data/transaction"
 	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
 
+// Store manages the set of APIs for user database access.
 type Store struct {
 	log *logger.Logger
-	db  *sqlx.DB
+	db  sqlx.ExtContext
 }
 
+// NewStore constructs the api for data access.
 func NewStore(log *logger.Logger, db *sqlx.DB) *Store {
 	return &Store{
 		log: log,
@@ -27,6 +30,23 @@ func NewStore(log *logger.Logger, db *sqlx.DB) *Store {
 	}
 }
 
+// ExecuteUnderTransaction constructs a new Store value replacing the sqlx DB
+// value with a sqlx DB value that is currently inside a transaction.
+func (s *Store) ExecuteUnderTransaction(tx transaction.Transaction) (user.Storer, error) {
+	ec, err := db.GetExtContext(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	s = &Store{
+		log: s.log,
+		db:  ec,
+	}
+
+	return s, nil
+}
+
+// Create inserts a new user into the database.
 func (s *Store) Create(ctx context.Context, usr user.User) error {
 	const q = `
 	INSERT INTO users
@@ -79,6 +99,29 @@ func (s *Store) Query(ctx context.Context, filter user.QueryFilter, orderBy orde
 	}
 
 	return usrs, nil
+}
+
+// Count returns the total number of users in the DB.
+func (s *Store) Count(ctx context.Context, filter user.QueryFilter) (int, error) {
+	data := map[string]interface{}{}
+
+	const q = `
+	SELECT
+		count(1)
+	FROM
+		users`
+
+	buf := bytes.NewBufferString(q)
+	s.applyFilter(filter, data, buf)
+
+	var count struct {
+		Count int `db:"count"`
+	}
+	if err := db.NamedQueryStruct(ctx, s.log, s.db, buf.String(), data, &count); err != nil {
+		return 0, fmt.Errorf("namedquerystruct: %w", err)
+	}
+
+	return count.Count, nil
 }
 
 // QueryByID gets the specified user from the database.
@@ -143,27 +186,4 @@ func (s *Store) QueryByEmail(ctx context.Context, email mail.Address) (user.User
 	}
 
 	return usr, nil
-}
-
-// Count returns the total number of users in the DB.
-func (s *Store) Count(ctx context.Context, filter user.QueryFilter) (int, error) {
-	data := map[string]interface{}{}
-
-	const q = `
-	SELECT
-		count(1)
-	FROM
-		users`
-
-	buf := bytes.NewBufferString(q)
-	s.applyFilter(filter, data, buf)
-
-	var count struct {
-		Count int `db:"count"`
-	}
-	if err := db.NamedQueryStruct(ctx, s.log, s.db, buf.String(), data, &count); err != nil {
-		return 0, fmt.Errorf("namedquerystruct: %w", err)
-	}
-
-	return count.Count, nil
 }
