@@ -3,6 +3,7 @@ package usergrp
 import (
 	"net/http"
 
+	"github.com/diegomagalhaes-dev/go-service/business/core/event"
 	"github.com/diegomagalhaes-dev/go-service/business/core/user"
 	"github.com/diegomagalhaes-dev/go-service/business/core/user/stores/userdb"
 	db "github.com/diegomagalhaes-dev/go-service/business/data/dbsql/pgx"
@@ -28,7 +29,8 @@ func Routes(app *web.App, cfg Config) {
 	ruleAdminOrSubject := mid.Authorize(cfg.Auth, auth.RuleAdminOrSubject)
 	tran := mid.ExecuteInTransation(cfg.Log, db.NewBeginner(cfg.DB))
 
-	usrCore := user.NewCore(cfg.Log, userdb.NewStore(cfg.Log, cfg.DB))
+	envCore := event.NewCore(cfg.Log)
+	usrCore := user.NewCore(cfg.Log, envCore, userdb.NewStore(cfg.Log, cfg.DB))
 
 	hdl := New(usrCore, cfg.Auth)
 	app.Handle(http.MethodPost, version, "/users", hdl.Create)
@@ -36,4 +38,5 @@ func Routes(app *web.App, cfg Config) {
 	app.Handle(http.MethodPost, version, "/usersauth", hdl.Create, authen, ruleAdmin)
 	app.Handle(http.MethodGet, version, "/users", hdl.Query, authen, ruleAdmin)
 	app.Handle(http.MethodGet, version, "/users/:user_id", hdl.QueryByID, authen, ruleAdminOrSubject)
+	app.Handle(http.MethodPut, version, "/users/:user_id", hdl.Update, authen, ruleAdminOrSubject, tran)
 }

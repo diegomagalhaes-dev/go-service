@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/diegomagalhaes-dev/go-service/business/core/event"
 	"github.com/diegomagalhaes-dev/go-service/business/core/user"
 	"github.com/diegomagalhaes-dev/go-service/business/core/user/stores/userdb"
 	"github.com/diegomagalhaes-dev/go-service/business/data/dbmigrate"
@@ -233,7 +234,8 @@ type CoreAPIs struct {
 }
 
 func newCoreAPIs(log *logger.Logger, db *sqlx.DB) CoreAPIs {
-	usrCore := user.NewCore(log, userdb.NewStore(log, db))
+	evnCore := event.NewCore(log)
+	usrCore := user.NewCore(log, evnCore, userdb.NewStore(log, db))
 
 	return CoreAPIs{
 		User: usrCore,

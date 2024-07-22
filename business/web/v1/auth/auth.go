@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/diegomagalhaes-dev/go-service/business/core/event"
 	"github.com/diegomagalhaes-dev/go-service/business/core/user"
 	"github.com/diegomagalhaes-dev/go-service/business/core/user/stores/userdb"
 	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
@@ -51,7 +52,8 @@ func New(cfg Config) (*Auth, error) {
 	// user enabled check.
 	var usrCore *user.Core
 	if cfg.DB != nil {
-		usrCore = user.NewCore(cfg.Log, userdb.NewStore(cfg.Log, cfg.DB))
+		evnCore := event.NewCore(cfg.Log)
+		usrCore = user.NewCore(cfg.Log, evnCore, userdb.NewStore(cfg.Log, cfg.DB))
 	}
 
 	a := Auth{

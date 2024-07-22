@@ -51,6 +51,43 @@ func (h *Handlers) Create(ctx context.Context, w http.ResponseWriter, r *http.Re
 	return web.Respond(ctx, w, toAppUser(usr), http.StatusCreated)
 }
 
+// Update updates a user in the system.
+func (h *Handlers) Update(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	h, err := h.executeUnderTransaction(ctx)
+	if err != nil {
+		return err
+	}
+
+	var app AppUpdateUser
+	if err := web.Decode(r, &app); err != nil {
+		return response.NewError(err, http.StatusBadRequest)
+	}
+
+	userID := auth.GetUserID(ctx)
+
+	usr, err := h.user.QueryByID(ctx, userID)
+	if err != nil {
+		switch {
+		case errors.Is(err, user.ErrNotFound):
+			return response.NewError(err, http.StatusNotFound)
+		default:
+			return fmt.Errorf("querybyid: userID[%s]: %w", userID, err)
+		}
+	}
+
+	uu, err := toCoreUpdateUser(app)
+	if err != nil {
+		return response.NewError(err, http.StatusBadRequest)
+	}
+
+	usr, err = h.user.Update(ctx, usr, uu)
+	if err != nil {
+		return fmt.Errorf("update: userID[%s] uu[%+v]: %w", userID, uu, err)
+	}
+
+	return web.Respond(ctx, w, toAppUser(usr), http.StatusOK)
+}
+
 // executeUnderTransaction constructs a new Handlers value with the core apis
 // using a store transaction that was created via middleware.
 func (h *Handlers) executeUnderTransaction(ctx context.Context) (*Handlers, error) {

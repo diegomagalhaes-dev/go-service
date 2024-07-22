@@ -64,6 +64,52 @@ func (s *Store) Create(ctx context.Context, usr user.User) error {
 	return nil
 }
 
+// Update replaces a user document in the database.
+func (s *Store) Update(ctx context.Context, usr user.User) error {
+	const q = `
+	UPDATE
+		users
+	SET 
+		"name" = :name,
+		"email" = :email,
+		"roles" = :roles,
+		"password_hash" = :password_hash,
+		"department" = :department,
+		"date_updated" = :date_updated
+	WHERE
+		user_id = :user_id`
+
+	if err := db.NamedExecContext(ctx, s.log, s.db, q, toDBUser(usr)); err != nil {
+		if errors.Is(err, db.ErrDBDuplicatedEntry) {
+			return user.ErrUniqueEmail
+		}
+		return fmt.Errorf("namedexeccontext: %w", err)
+	}
+
+	return nil
+}
+
+// Delete removes a user from the database.
+func (s *Store) Delete(ctx context.Context, usr user.User) error {
+	data := struct {
+		UserID string `db:"user_id"`
+	}{
+		UserID: usr.ID.String(),
+	}
+
+	const q = `
+	DELETE FROM
+		users
+	WHERE
+		user_id = :user_id`
+
+	if err := db.NamedExecContext(ctx, s.log, s.db, q, data); err != nil {
+		return fmt.Errorf("namedexeccontext: %w", err)
+	}
+
+	return nil
+}
+
 // Query retrieves a list of existing users from the database.
 func (s *Store) Query(ctx context.Context, filter user.QueryFilter, orderBy order.By, pageNumber int, rowsPerPage int) ([]user.User, error) {
 	data := map[string]interface{}{

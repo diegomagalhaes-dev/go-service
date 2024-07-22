@@ -7,6 +7,7 @@ import (
 	"net/mail"
 	"time"
 
+	"github.com/diegomagalhaes-dev/go-service/business/core/event"
 	"github.com/diegomagalhaes-dev/go-service/business/data/order"
 	"github.com/diegomagalhaes-dev/go-service/business/data/transaction"
 	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
@@ -23,20 +24,25 @@ var (
 type Storer interface {
 	ExecuteUnderTransaction(tx transaction.Transaction) (Storer, error)
 	Create(ctx context.Context, usr User) error
+	Update(ctx context.Context, usr User) error
+	Delete(ctx context.Context, usr User) error
 	Query(ctx context.Context, filter QueryFilter, orderBy order.By, pageNumber int, rowsPerPage int) ([]User, error)
 	QueryByID(ctx context.Context, userID uuid.UUID) (User, error)
 	QueryByEmail(ctx context.Context, email mail.Address) (User, error)
 	Count(ctx context.Context, filter QueryFilter) (int, error)
 }
 type Core struct {
-	storer Storer
-	log    *logger.Logger
+	storer  Storer
+	evnCore *event.Core
+	log     *logger.Logger
 }
 
-func NewCore(log *logger.Logger, storer Storer) *Core {
+// NewCore constructs a core for user api access.
+func NewCore(log *logger.Logger, evnCore *event.Core, storer Storer) *Core {
 	return &Core{
-		storer: storer,
-		log:    log,
+		storer:  storer,
+		evnCore: evnCore,
+		log:     log,
 	}
 }
 
@@ -49,8 +55,9 @@ func (c *Core) ExecuteUnderTransaction(tx transaction.Transaction) (*Core, error
 	}
 
 	c = &Core{
-		storer: trS,
-		log:    c.log,
+		storer:  trS,
+		evnCore: c.evnCore,
+		log:     c.log,
 	}
 
 	return c, nil
@@ -81,6 +88,57 @@ func (c *Core) Create(ctx context.Context, nu NewUser) (User, error) {
 	}
 
 	return usr, nil
+}
+
+// Update modifies information about a user.
+func (c *Core) Update(ctx context.Context, usr User, uu UpdateUser) (User, error) {
+	if uu.Name != nil {
+		usr.Name = *uu.Name
+	}
+
+	if uu.Email != nil {
+		usr.Email = *uu.Email
+	}
+
+	if uu.Roles != nil {
+		usr.Roles = uu.Roles
+	}
+
+	if uu.Password != nil {
+		pw, err := bcrypt.GenerateFromPassword([]byte(*uu.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return User{}, fmt.Errorf("generatefrompassword: %w", err)
+		}
+		usr.PasswordHash = pw
+	}
+
+	if uu.Department != nil {
+		usr.Department = *uu.Department
+	}
+
+	if uu.Enabled != nil {
+		usr.Enabled = *uu.Enabled
+	}
+	usr.DateUpdated = time.Now()
+
+	if err := c.storer.Update(ctx, usr); err != nil {
+		return User{}, fmt.Errorf("update: %w", err)
+	}
+
+	if err := c.evnCore.SendEvent(ctx, uu.UpdatedEvent(usr.ID)); err != nil {
+		return User{}, fmt.Errorf("failed to send a `%s` event: %w", EventUpdated, err)
+	}
+
+	return usr, nil
+}
+
+// Delete removes the specified user.
+func (c *Core) Delete(ctx context.Context, usr User) error {
+	if err := c.storer.Delete(ctx, usr); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+
+	return nil
 }
 
 // Query retrieves a list of existing users.
