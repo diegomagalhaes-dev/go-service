@@ -14,9 +14,6 @@ curl:
 curl-auth:
 	curl -il -H "Authorization: Bearer ${TOKEN}" http://localhost:3000/v1/hackauth
 
-load:
-	hey -m GET -c 100 -n 100000 "http://localhost:3000/v1/hack"
-
 admin:
 	go run app/tooling/sales-admin/main.go
 
@@ -116,6 +113,7 @@ dev-down:
 # ------------------------------------------------------------------------------
 
 dev-load:
+	cd zarf/k8s/dev/sales; kustomize edit set image service-image=$(SERVICE_IMAGE)
 	kind load docker-image $(SERVICE_IMAGE) --name $(KIND_CLUSTER)
 
 dev-apply:
@@ -186,3 +184,33 @@ vuln-check:
 test: test-only lint vuln-check
 
 test-race: test-race lint vuln-check
+
+# ==============================================================================
+# Administration
+
+migrate:
+	go run app/tooling/sales-admin/main.go migrate
+
+seed: migrate
+	go run app/tooling/sales-admin/main.go seed
+
+# ==============================================================================
+# Hitting endpoints
+
+token:
+	curl -il --user "admin@example.com:gophers" http://localhost:3000/v1/users/token/54bb2165-71e1-41a6-af3e-7da4a0e1e2c1
+
+# export TOKEN="COPY TOKEN STRING FROM LAST CALL"
+
+users:
+	curl -il -H "Authorization: Bearer ${TOKEN}" http://localhost:3000/v1/users?page=1&rows=2
+
+user-get:
+	curl -il -X GET -H "Authorization: Bearer ${TOKEN}" http://localhost:3000/v1/users/d88b88d9-8bf4-40b3-a700-179424ca40f5
+
+
+curl-update-user:
+	curl -il -X PUT -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' -d '{"name":"User Gopher Editado 2"}' http://localhost:3000/v1/users/45b5fbd3-755f-4379-8f07-a58d4a30fa2f
+
+load:
+	hey -m GET -c 100 -n 10000 -H "Authorization: Bearer ${TOKEN}" "http://localhost:3000/v1/users?page=1&rows=2"

@@ -149,3 +149,13 @@ func (app AppUpdateUser) Validate() error {
 
 	return nil
 }
+
+type token struct {
+	Token string `json:"token"`
+}
+
+func toToken(v string) token {
+	return token{
+		Token: v,
+	}
+}

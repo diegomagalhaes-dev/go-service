@@ -175,3 +175,21 @@ func (c *Core) QueryByEmail(ctx context.Context, email mail.Address) (User, erro
 func (c *Core) Count(ctx context.Context, filter QueryFilter) (int, error) {
 	return c.storer.Count(ctx, filter)
 }
+
+// =============================================================================
+
+// Authenticate finds a user by their email and verifies their password. On
+// success it returns a Claims User representing this user. The claims can be
+// used to generate a token for future authentication.
+func (c *Core) Authenticate(ctx context.Context, email mail.Address, password string) (User, error) {
+	usr, err := c.QueryByEmail(ctx, email)
+	if err != nil {
+		return User{}, fmt.Errorf("query: email[%s]: %w", email, err)
+	}
+
+	if err := bcrypt.CompareHashAndPassword(usr.PasswordHash, []byte(password)); err != nil {
+		return User{}, fmt.Errorf("comparehashandpassword: %w", ErrAuthenticationFailure)
+	}
+
+	return usr, nil
+}

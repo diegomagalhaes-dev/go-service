@@ -33,6 +33,7 @@ func Routes(app *web.App, cfg Config) {
 	usrCore := user.NewCore(cfg.Log, envCore, userdb.NewStore(cfg.Log, cfg.DB))
 
 	hdl := New(usrCore, cfg.Auth)
+	app.Handle(http.MethodGet, version, "/users/token/:kid", hdl.Token)
 	app.Handle(http.MethodPost, version, "/users", hdl.Create)
 	app.Handle(http.MethodPost, version, "/userstran", hdl.CreateWithTran, authen, ruleAdmin, tran)
 	app.Handle(http.MethodPost, version, "/usersauth", hdl.Create, authen, ruleAdmin)
