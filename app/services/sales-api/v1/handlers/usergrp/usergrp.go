@@ -32,8 +32,33 @@ func New(user *user.Core, auth *auth.Auth) *Handlers {
 	}
 }
 
+// executeUnderTransaction constructs a new Handlers value with the core apis
+// using a store transaction that was created via middleware.
+func (h *Handlers) executeUnderTransaction(ctx context.Context) (*Handlers, error) {
+	if tx, ok := transaction.Get(ctx); ok {
+		user, err := h.user.ExecuteUnderTransaction(tx)
+		if err != nil {
+			return nil, err
+		}
+
+		h = &Handlers{
+			user: user,
+			auth: h.auth,
+		}
+
+		return h, nil
+	}
+
+	return h, nil
+}
+
 // Create adds a new user to the system.
 func (h *Handlers) Create(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	h, err := h.executeUnderTransaction(ctx)
+	if err != nil {
+		return err
+	}
+
 	var app AppNewUser
 	if err := web.Decode(r, &app); err != nil {
 		return response.NewError(err, http.StatusBadRequest)
@@ -92,52 +117,30 @@ func (h *Handlers) Update(ctx context.Context, w http.ResponseWriter, r *http.Re
 	return web.Respond(ctx, w, toAppUser(usr), http.StatusOK)
 }
 
-// executeUnderTransaction constructs a new Handlers value with the core apis
-// using a store transaction that was created via middleware.
-func (h *Handlers) executeUnderTransaction(ctx context.Context) (*Handlers, error) {
-	if tx, ok := transaction.Get(ctx); ok {
-		user, err := h.user.ExecuteUnderTransaction(tx)
-		if err != nil {
-			return nil, err
-		}
+// Delete removes a user from the system.
+func (h *Handlers) Delete(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	userID := auth.GetUserID(ctx)
 
-		h = &Handlers{
-			user: user,
-			auth: h.auth,
-		}
-
-		return h, nil
-	}
-
-	return h, nil
-}
-
-// CreateWithTran adds a new user to the system.
-func (h *Handlers) CreateWithTran(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 	h, err := h.executeUnderTransaction(ctx)
 	if err != nil {
 		return err
 	}
 
-	var app AppNewUser
-	if err := web.Decode(r, &app); err != nil {
-		return response.NewError(err, http.StatusBadRequest)
-	}
-
-	nc, err := toCoreNewUser(app)
+	usr, err := h.user.QueryByID(ctx, userID)
 	if err != nil {
-		return response.NewError(err, http.StatusBadRequest)
-	}
-
-	usr, err := h.user.Create(ctx, nc)
-	if err != nil {
-		if errors.Is(err, user.ErrUniqueEmail) {
-			return response.NewError(err, http.StatusConflict)
+		switch {
+		case errors.Is(err, user.ErrNotFound):
+			return web.Respond(ctx, w, nil, http.StatusNoContent)
+		default:
+			return fmt.Errorf("querybyid: userID[%s]: %w", userID, err)
 		}
-		return fmt.Errorf("create: usr[%+v]: %w", usr, err)
 	}
 
-	return web.Respond(ctx, w, toAppUser(usr), http.StatusCreated)
+	if err := h.user.Delete(ctx, usr); err != nil {
+		return fmt.Errorf("delete: userID[%s]: %w", userID, err)
+	}
+
+	return web.Respond(ctx, w, nil, http.StatusNoContent)
 }
 
 // Query returns a list of users with paging.

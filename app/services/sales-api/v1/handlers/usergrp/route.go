@@ -34,10 +34,9 @@ func Routes(app *web.App, cfg Config) {
 
 	hdl := New(usrCore, cfg.Auth)
 	app.Handle(http.MethodGet, version, "/users/token/:kid", hdl.Token)
-	app.Handle(http.MethodPost, version, "/users", hdl.Create)
-	app.Handle(http.MethodPost, version, "/userstran", hdl.CreateWithTran, authen, ruleAdmin, tran)
-	app.Handle(http.MethodPost, version, "/usersauth", hdl.Create, authen, ruleAdmin)
 	app.Handle(http.MethodGet, version, "/users", hdl.Query, authen, ruleAdmin)
 	app.Handle(http.MethodGet, version, "/users/:user_id", hdl.QueryByID, authen, ruleAdminOrSubject)
+	app.Handle(http.MethodPost, version, "/users", hdl.Create)
 	app.Handle(http.MethodPut, version, "/users/:user_id", hdl.Update, authen, ruleAdminOrSubject, tran)
+	app.Handle(http.MethodDelete, version, "/users/:user_id", hdl.Delete, authen, ruleAdminOrSubject, tran)
 }
