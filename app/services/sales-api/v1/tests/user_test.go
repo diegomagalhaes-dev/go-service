@@ -114,7 +114,7 @@ func (ut *UserTests) getToken200() func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodGet, url, nil)
 		w := httptest.NewRecorder()
 
-		r.SetBasicAuth("johndoe@gmail.com", "gophers")
+		r.SetBasicAuth("admin@example.com", "gophers")
 		ut.app.ServeHTTP(w, r)
 
 		if w.Code != http.StatusOK {
@@ -180,7 +180,14 @@ func (ut *UserTests) postUser400() func(t *testing.T) {
 
 func (ut *UserTests) postUser401() func(t *testing.T) {
 	return func(t *testing.T) {
-		body, err := json.Marshal(&usergrp.AppNewUser{})
+		body, err := json.Marshal(&usergrp.AppNewUser{
+			Name:            "John Doe",
+			Email:           "johndoe3@gmail.com",
+			Roles:           []string{user.RoleUser.Name()},
+			Password:        "gophers",
+			PasswordConfirm: "gophers",
+		})
+
 		if err != nil {
 			t.Fatal(err)
 		}

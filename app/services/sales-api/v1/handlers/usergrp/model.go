@@ -9,6 +9,7 @@ import (
 	"github.com/diegomagalhaes-dev/go-service/foundation/validate"
 )
 
+// AppUser represents information about an individual user.
 type AppUser struct {
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`
@@ -49,6 +50,9 @@ func toAppUsers(users []user.User) []AppUser {
 	return items
 }
 
+// =============================================================================
+
+// AppNewUser contains information needed to create a new user.
 type AppNewUser struct {
 	Name            string   `json:"name" validate:"required"`
 	Email           string   `json:"email" validate:"required,email"`
@@ -85,6 +89,7 @@ func toCoreNewUser(app AppNewUser) (user.NewUser, error) {
 	return usr, nil
 }
 
+// Validate checks the data in the model is considered clean.
 func (app AppNewUser) Validate() error {
 	if err := validate.Check(app); err != nil {
 		return err
@@ -149,6 +154,8 @@ func (app AppUpdateUser) Validate() error {
 
 	return nil
 }
+
+// =============================================================================
 
 type token struct {
 	Token string `json:"token"`
