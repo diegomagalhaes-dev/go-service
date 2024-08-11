@@ -5,6 +5,7 @@ import (
 
 	"github.com/diegomagalhaes-dev/go-service/business/core/event"
 	"github.com/diegomagalhaes-dev/go-service/business/core/user"
+	"github.com/diegomagalhaes-dev/go-service/business/core/user/stores/usercache"
 	"github.com/diegomagalhaes-dev/go-service/business/core/user/stores/userdb"
 	db "github.com/diegomagalhaes-dev/go-service/business/data/dbsql/pgx"
 	"github.com/diegomagalhaes-dev/go-service/business/web/v1/auth"
@@ -30,7 +31,7 @@ func Routes(app *web.App, cfg Config) {
 	tran := mid.ExecuteInTransation(cfg.Log, db.NewBeginner(cfg.DB))
 
 	envCore := event.NewCore(cfg.Log)
-	usrCore := user.NewCore(cfg.Log, envCore, userdb.NewStore(cfg.Log, cfg.DB))
+	usrCore := user.NewCore(cfg.Log, envCore, usercache.NewStore(cfg.Log, userdb.NewStore(cfg.Log, cfg.DB)))
 
 	hdl := New(usrCore, cfg.Auth)
 	app.Handle(http.MethodGet, version, "/users/token/:kid", hdl.Token)

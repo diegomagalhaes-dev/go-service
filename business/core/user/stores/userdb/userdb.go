@@ -3,12 +3,15 @@ package userdb
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"net/mail"
 
 	"github.com/diegomagalhaes-dev/go-service/business/core/user"
 	db "github.com/diegomagalhaes-dev/go-service/business/data/dbsql/pgx"
+	"github.com/diegomagalhaes-dev/go-service/business/data/dbsql/pgx/dbarray"
 	"github.com/diegomagalhaes-dev/go-service/business/data/order"
 	"github.com/diegomagalhaes-dev/go-service/business/data/transaction"
 	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
@@ -232,4 +235,44 @@ func (s *Store) QueryByEmail(ctx context.Context, email mail.Address) (user.User
 	}
 
 	return usr, nil
+}
+
+// QueryByIDs gets the specified users from the database.
+func (s *Store) QueryByIDs(ctx context.Context, userIDs []uuid.UUID) ([]user.User, error) {
+	ids := make([]string, len(userIDs))
+	for i, userID := range userIDs {
+		ids[i] = userID.String()
+	}
+
+	data := struct {
+		UserID interface {
+			driver.Valuer
+			sql.Scanner
+		} `db:"user_id"`
+	}{
+		UserID: dbarray.Array(ids),
+	}
+
+	const q = `
+	SELECT
+        user_id, name, email, password_hash, roles, enabled, department, date_created, date_updated
+	FROM
+		users
+	WHERE
+		user_id = ANY(:user_id)`
+
+	var dbUsrs []dbUser
+	if err := db.NamedQuerySlice(ctx, s.log, s.db, q, data, &dbUsrs); err != nil {
+		if errors.Is(err, db.ErrDBNotFound) {
+			return nil, user.ErrNotFound
+		}
+		return nil, fmt.Errorf("namedquerystruct: %w", err)
+	}
+
+	usrs, err := toCoreUserSlice(dbUsrs)
+	if err != nil {
+		return nil, err
+	}
+
+	return usrs, nil
 }
