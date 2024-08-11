@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/mail"
 	"sync"
+	"time"
 
 	"github.com/diegomagalhaes-dev/go-service/business/core/user"
 	"github.com/diegomagalhaes-dev/go-service/business/data/order"
@@ -15,18 +16,20 @@ import (
 
 // Store manages the set of APIs for user data and caching.
 type Store struct {
-	log    *logger.Logger
-	storer user.Storer
-	cache  map[string]user.User
-	mu     sync.RWMutex
+	log        *logger.Logger
+	storer     user.Storer
+	cache      map[string]user.User
+	expiration map[string]time.Time
+	mu         sync.RWMutex
 }
 
 // NewStore constructs the api for data and caching access.
 func NewStore(log *logger.Logger, storer user.Storer) *Store {
 	return &Store{
-		log:    log,
-		storer: storer,
-		cache:  map[string]user.User{},
+		log:        log,
+		storer:     storer,
+		cache:      map[string]user.User{},
+		expiration: map[string]time.Time{},
 	}
 }
 
@@ -42,7 +45,8 @@ func (s *Store) Create(ctx context.Context, usr user.User) error {
 		return err
 	}
 
-	s.writeCache(usr)
+	ttl := 10 * time.Minute
+	s.writeCache(usr, ttl)
 
 	return nil
 }
@@ -53,7 +57,8 @@ func (s *Store) Update(ctx context.Context, usr user.User) error {
 		return err
 	}
 
-	s.writeCache(usr)
+	ttl := 10 * time.Minute
+	s.writeCache(usr, ttl)
 
 	return nil
 }
@@ -91,7 +96,8 @@ func (s *Store) QueryByID(ctx context.Context, userID uuid.UUID) (user.User, err
 		return user.User{}, err
 	}
 
-	s.writeCache(usr)
+	ttl := 10 * time.Minute
+	s.writeCache(usr, ttl)
 
 	return usr, nil
 }
@@ -118,7 +124,8 @@ func (s *Store) QueryByEmail(ctx context.Context, email mail.Address) (user.User
 		return user.User{}, err
 	}
 
-	s.writeCache(usr)
+	ttl := 10 * time.Minute
+	s.writeCache(usr, ttl)
 
 	return usr, nil
 }
@@ -130,6 +137,13 @@ func (s *Store) readCache(key string) (user.User, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	expirationTime, exists := s.expiration[key]
+	if !exists || time.Now().After(expirationTime) {
+		delete(s.cache, key)
+		delete(s.expiration, key)
+		return user.User{}, false
+	}
+
 	usr, exists := s.cache[key]
 	if !exists {
 		return user.User{}, false
@@ -139,12 +153,15 @@ func (s *Store) readCache(key string) (user.User, bool) {
 }
 
 // writeCache performs a safe write to the cache for the specified user.
-func (s *Store) writeCache(usr user.User) {
+func (s *Store) writeCache(usr user.User, ttl time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	expirationTime := time.Now().Add(ttl)
 	s.cache[usr.ID.String()] = usr
 	s.cache[usr.Email.Address] = usr
+	s.expiration[usr.ID.String()] = expirationTime
+	s.expiration[usr.Email.Address] = expirationTime
 }
 
 // deleteCache performs a safe removal from the cache for the specified user.
@@ -154,4 +171,6 @@ func (s *Store) deleteCache(usr user.User) {
 
 	delete(s.cache, usr.ID.String())
 	delete(s.cache, usr.Email.Address)
+	delete(s.expiration, usr.ID.String())
+	delete(s.expiration, usr.Email.Address)
 }
