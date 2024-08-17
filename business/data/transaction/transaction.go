@@ -3,6 +3,11 @@ package transaction
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+
+	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
 )
 
 // Transaction represents a value that can commit or rollback a transaction.
@@ -31,4 +36,44 @@ func Set(ctx context.Context, tx Transaction) context.Context {
 func Get(ctx context.Context) (Transaction, bool) {
 	v, ok := ctx.Value(trKey).(Transaction)
 	return v, ok
+}
+
+// =============================================================================
+
+// ExecuteUnderTransaction is a helper function that can be used in tests and
+// other apps to execute the core APIs under a transaction.
+func ExecuteUnderTransaction(ctx context.Context, log *logger.Logger, bgn Beginner, fn func(tx Transaction) error) error {
+	hasCommited := false
+
+	log.Info(ctx, "BEGIN TRANSACTION")
+	tx, err := bgn.Begin()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if !hasCommited {
+			log.Info(ctx, "ROLLBACK TRANSACTION")
+		}
+
+		if err := tx.Rollback(); err != nil {
+			if errors.Is(err, sql.ErrTxDone) {
+				return
+			}
+			log.Info(ctx, "ROLLBACK TRANSACTION", "ERROR", err)
+		}
+	}()
+
+	if err := fn(tx); err != nil {
+		return fmt.Errorf("EXECUTE TRANSACTION: %w", err)
+	}
+
+	log.Info(ctx, "COMMIT TRANSACTION")
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("COMMIT TRANSACTION: %w", err)
+	}
+
+	hasCommited = true
+
+	return nil
 }
