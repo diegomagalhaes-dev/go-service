@@ -3,6 +3,7 @@ package handlers
 import (
 	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/handlers/checkgrp"
 	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/handlers/hackgrp"
+	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/handlers/productgrp"
 	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/handlers/usergrp"
 	v1 "github.com/diegomagalhaes-dev/go-service/business/web/v1"
 	"github.com/diegomagalhaes-dev/go-service/foundation/web"
@@ -23,6 +24,13 @@ func (Routes) Add(app *web.App, apiCfg v1.APIMuxConfig) {
 	})
 
 	usergrp.Routes(app, usergrp.Config{
+		Build: apiCfg.Build,
+		Log:   apiCfg.Log,
+		DB:    apiCfg.DB,
+		Auth:  apiCfg.Auth,
+	})
+
+	productgrp.Routes(app, productgrp.Config{
 		Build: apiCfg.Build,
 		Log:   apiCfg.Log,
 		DB:    apiCfg.DB,
