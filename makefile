@@ -212,5 +212,11 @@ user-get:
 curl-update-user:
 	curl -il -X PUT -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' -d '{"name":"User Gopher Editado 2"}' http://localhost:3000/v1/users/45b5fbd3-755f-4379-8f07-a58d4a30fa2f
 
+curl-create-product:
+	curl -il -X POST -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' -d '{"userId":"45b5fbd3-755f-4379-8f07-a58d4a30fa2f","name":"rocambole","cost": 22.80,"quantity": 2}' http://localhost:3000/v1/products
+
+curl-user-get-summary:
+	curl -il -X GET -H "Authorization: Bearer ${TOKEN}" http://localhost:3000/v1/usersummary
+
 load:
 	hey -m GET -c 100 -n 10000 -H "Authorization: Bearer ${TOKEN}" "http://localhost:3000/v1/users?page=1&rows=2"

@@ -14,6 +14,8 @@ import (
 	"github.com/diegomagalhaes-dev/go-service/business/core/product/stores/productdb"
 	"github.com/diegomagalhaes-dev/go-service/business/core/user"
 	"github.com/diegomagalhaes-dev/go-service/business/core/user/stores/userdb"
+	"github.com/diegomagalhaes-dev/go-service/business/core/usersummary"
+	"github.com/diegomagalhaes-dev/go-service/business/core/usersummary/stores/usersummarydb"
 	"github.com/diegomagalhaes-dev/go-service/business/data/dbmigrate"
 	db "github.com/diegomagalhaes-dev/go-service/business/data/dbsql/pgx"
 	"github.com/diegomagalhaes-dev/go-service/business/web/v1/auth"
@@ -233,18 +235,21 @@ func FloatPointer(f float64) *float64 {
 
 // CoreAPIs represents all the core api's needed for testing.
 type CoreAPIs struct {
-	User    *user.Core
-	Product *product.Core
+	User        *user.Core
+	Product     *product.Core
+	UserSummary *usersummary.Core
 }
 
 func newCoreAPIs(log *logger.Logger, db *sqlx.DB) CoreAPIs {
 	evnCore := event.NewCore(log)
 	usrCore := user.NewCore(log, evnCore, userdb.NewStore(log, db))
 	prdCore := product.NewCore(log, evnCore, usrCore, productdb.NewStore(log, db))
+	usmCore := usersummary.NewCore(usersummarydb.NewStore(log, db))
 
 	return CoreAPIs{
-		User:    usrCore,
-		Product: prdCore,
+		User:        usrCore,
+		Product:     prdCore,
+		UserSummary: usmCore,
 	}
 }
 
