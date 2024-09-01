@@ -1,3 +1,6 @@
+// Package user provides the core business logic for user management within the
+// application. This includes creating, updating, deleting, querying users,
+// as well as handling authentication and transactional operations.
 package user
 
 import (
@@ -15,12 +18,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// Error variables to represent common failure states.
 var (
 	ErrNotFound              = errors.New("user not found")
 	ErrUniqueEmail           = errors.New("email is not unique")
 	ErrAuthenticationFailure = errors.New("authentication failed")
 )
 
+// Storer interface defines methods to interact with the data layer for user operations.
 type Storer interface {
 	ExecuteUnderTransaction(tx transaction.Transaction) (Storer, error)
 	Create(ctx context.Context, usr User) error
@@ -32,13 +37,15 @@ type Storer interface {
 	QueryByIDs(ctx context.Context, userID []uuid.UUID) ([]User, error)
 	QueryByEmail(ctx context.Context, email mail.Address) (User, error)
 }
+
+// Core manages user-related operations and business logic.
 type Core struct {
 	storer  Storer
 	evnCore *event.Core
 	log     *logger.Logger
 }
 
-// NewCore constructs a core for user api access.
+// NewCore constructs a core for user API access.
 func NewCore(log *logger.Logger, evnCore *event.Core, storer Storer) *Core {
 	return &Core{
 		storer:  storer,
@@ -48,7 +55,7 @@ func NewCore(log *logger.Logger, evnCore *event.Core, storer Storer) *Core {
 }
 
 // ExecuteUnderTransaction constructs a new Core value that will use the
-// specified transaction in any store related calls.
+// specified transaction in any store-related calls.
 func (c *Core) ExecuteUnderTransaction(tx transaction.Transaction) (*Core, error) {
 	trS, err := c.storer.ExecuteUnderTransaction(tx)
 	if err != nil {
@@ -64,6 +71,7 @@ func (c *Core) ExecuteUnderTransaction(tx transaction.Transaction) (*Core, error
 	return c, nil
 }
 
+// Create adds a new user to the database.
 func (c *Core) Create(ctx context.Context, nu NewUser) (User, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(nu.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -186,8 +194,6 @@ func (c *Core) QueryByEmail(ctx context.Context, email mail.Address) (User, erro
 func (c *Core) Count(ctx context.Context, filter QueryFilter) (int, error) {
 	return c.storer.Count(ctx, filter)
 }
-
-// =============================================================================
 
 // Authenticate finds a user by their email and verifies their password. On
 // success it returns a Claims User representing this user. The claims can be

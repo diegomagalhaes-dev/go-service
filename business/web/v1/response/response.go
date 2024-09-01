@@ -1,3 +1,5 @@
+// Package response provides utilities for handling API responses,
+// including error handling and pagination structures.
 package response
 
 import "errors"

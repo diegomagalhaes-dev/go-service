@@ -1,3 +1,7 @@
+// Package handlers configures and registers the route handlers for the sales API service.
+// It defines the routes for various API groups, including health checks, user management,
+// product management, and summaries, ensuring they are correctly wired up with the application's
+// core logic and middleware.
 package handlers
 
 import (
@@ -10,6 +14,7 @@ import (
 	"github.com/diegomagalhaes-dev/go-service/foundation/web"
 )
 
+// Routes contains all the route configurations for the sales API.
 type Routes struct{}
 
 // Add implements the RouterAdder interface to add all routes.

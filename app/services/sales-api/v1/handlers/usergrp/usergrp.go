@@ -1,3 +1,6 @@
+// Package usergrp provides functionality for parsing and validating
+// user-related query filters from HTTP requests, primarily used in
+// handling user data retrieval and management operations.
 package usergrp
 
 import (

@@ -1,3 +1,5 @@
+// Package checkgrp provides handlers for health check endpoints such as readiness
+// and liveness, ensuring that the application is operating correctly and responding to requests.
 package checkgrp
 
 import (
@@ -12,12 +14,14 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+// Handlers manages the set of health check endpoints.
 type Handlers struct {
 	log   *logger.Logger
 	build string
 	db    *sqlx.DB
 }
 
+// New constructs a new Handlers instance for the health check endpoints.
 func New(build string, log *logger.Logger, db *sqlx.DB) *Handlers {
 	return &Handlers{
 		build: build,
@@ -26,6 +30,7 @@ func New(build string, log *logger.Logger, db *sqlx.DB) *Handlers {
 	}
 }
 
+// Readiness checks if the service is ready to accept requests by verifying the database connection.
 func (h *Handlers) Readiness(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
@@ -48,6 +53,7 @@ func (h *Handlers) Readiness(ctx context.Context, w http.ResponseWriter, r *http
 	return web.Respond(ctx, w, data, statusCode)
 }
 
+// Liveness checks if the service is alive and able to respond to requests.
 func (h *Handlers) Liveness(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 	host, err := os.Hostname()
 	if err != nil {
