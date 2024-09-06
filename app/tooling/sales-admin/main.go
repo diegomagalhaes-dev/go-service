@@ -1,52 +1,52 @@
+// This program performs administrative tasks for the garage sale service.
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	_ "embed"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
-	"time"
 
 	"github.com/ardanlabs/conf/v3"
-	"github.com/diegomagalhaes-dev/go-service/business/data/dbmigrate"
+	"github.com/diegomagalhaes-dev/go-service/app/tooling/sales-admin/commands"
 	db "github.com/diegomagalhaes-dev/go-service/business/data/dbsql/pgx"
-	"github.com/golang-jwt/jwt/v4"
-	"github.com/open-policy-agent/opa/rego"
+	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
 )
 
-// Core OPA policies.
-var (
-	//go:embed rego/authentication.rego
-	opaAuthentication string
-)
+var build = "develop"
 
-func main() {
-	err := migrateSeed()
-
-	if err != nil {
-		log.Fatalln(err)
+type config struct {
+	conf.Version
+	Args conf.Args
+	DB   struct {
+		User         string `conf:"default:postgres"`
+		Password     string `conf:"default:postgres,mask"`
+		Host         string `conf:"default:database-service.sales-system.svc.cluster.local"`
+		Name         string `conf:"default:postgres"`
+		MaxIdleConns int    `conf:"default:2"`
+		MaxOpenConns int    `conf:"default:0"`
+		DisableTLS   bool   `conf:"default:true"`
 	}
 }
 
-func migrateSeed() error {
-	var cfg struct {
-		DB struct {
-			User         string `conf:"default:postgres"`
-			Password     string `conf:"default:postgres,mask"`
-			Host         string `conf:"default:database-service.sales-system.svc.cluster.local"`
-			Name         string `conf:"default:postgres"`
-			MaxIdleConns int    `conf:"default:2"`
-			MaxOpenConns int    `conf:"default:0"`
-			DisableTLS   bool   `conf:"default:true"`
+func main() {
+	log := logger.New(io.Discard, logger.LevelInfo, "ADMIN", func(context.Context) string { return "00000000-0000-0000-0000-000000000000" })
+
+	if err := run(log); err != nil {
+		if !errors.Is(err, commands.ErrHelp) {
+			fmt.Println("msg", err)
 		}
+		os.Exit(1)
+	}
+}
+
+func run(log *logger.Logger) error {
+	cfg := config{
+		Version: conf.Version{
+			Build: build,
+			Desc:  "copyright information here",
+		},
 	}
 
 	const prefix = "SALES"
@@ -57,9 +57,21 @@ func migrateSeed() error {
 			return nil
 		}
 
+		out, err := conf.String(&cfg)
+		if err != nil {
+			return fmt.Errorf("generating config for output: %w", err)
+		}
+		log.Info(context.Background(), "startup", "config", out)
+
 		return fmt.Errorf("parsing config: %w", err)
 	}
 
+	return processCommands(cfg.Args, log, cfg)
+}
+
+// processCommands handles the execution of the commands specified on
+// the command line.
+func processCommands(args conf.Args, log *logger.Logger, cfg config) error {
 	dbConfig := db.Config{
 		User:         cfg.DB.User,
 		Password:     cfg.DB.Password,
@@ -70,247 +82,47 @@ func migrateSeed() error {
 		DisableTLS:   cfg.DB.DisableTLS,
 	}
 
-	db, err := db.Open(dbConfig)
-	if err != nil {
-		return fmt.Errorf("connect database: %w", err)
-	}
-	defer db.Close()
+	switch args.Num(0) {
+	case "migrate":
+		if err := commands.Migrate(dbConfig); err != nil {
+			return fmt.Errorf("migrating database: %w", err)
+		}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	case "seed":
+		if err := commands.Seed(dbConfig); err != nil {
+			return fmt.Errorf("seeding database: %w", err)
+		}
 
-	if err := dbmigrate.Migrate(ctx, db); err != nil {
-		return fmt.Errorf("migrate database: %w", err)
-	}
+	case "useradd":
+		name := args.Num(1)
+		email := args.Num(2)
+		password := args.Num(3)
+		if err := commands.UserAdd(log, dbConfig, name, email, password); err != nil {
+			return fmt.Errorf("adding user: %w", err)
+		}
 
-	fmt.Println("migrations complete")
+	case "users":
+		pageNumber := args.Num(1)
+		rowsPerPage := args.Num(2)
+		if err := commands.Users(log, dbConfig, pageNumber, rowsPerPage); err != nil {
+			return fmt.Errorf("getting users: %w", err)
+		}
 
-	// -------------------------------------------------------------------------
+	case "genkey":
+		if err := commands.GenKey(); err != nil {
+			return fmt.Errorf("key generation: %w", err)
+		}
 
-	if err := dbmigrate.Seed(ctx, db); err != nil {
-		return fmt.Errorf("seed database: %w", err)
-	}
-
-	fmt.Println("seed data complete")
-	return nil
-}
-
-func gentoken() error {
-
-	// Generate a new private key.
-	file, err := os.Open("zarf/keys/54bb2165-71e1-41a6-af3e-7da4a0e1e2c1.pem")
-	if err != nil {
-		return fmt.Errorf("opening key file: %w", err)
-	}
-	defer file.Close()
-
-	// limit PEM file size to 1 megabyte. This should be reasonable for
-	// almost any PEM file and prevents shenanigans like linking the file
-	// to /dev/random or something like that.
-	pemData, err := io.ReadAll(io.LimitReader(file, 1024*1024))
-	if err != nil {
-		return fmt.Errorf("reading auth private key: %w", err)
-	}
-
-	privateKey, err := jwt.ParseRSAPrivateKeyFromPEM(pemData)
-	if err != nil {
-		return fmt.Errorf("parsing auth private key: %w", err)
-	}
-
-	// Generating a token requires defining a set of claims. In this applications
-	// case, we only care about defining the subject and the user in question and
-	// the roles they have on the database. This token will expire in a year.
-	//
-	// iss (issuer): Issuer of the JWT
-	// sub (subject): Subject of the JWT (the user)
-	// aud (audience): Recipient for which the JWT is intended
-	// exp (expiration time): Time after which the JWT expires
-	// nbf (not before time): Time before which the JWT must not be accepted for processing
-	// iat (issued at time): Time at which the JWT was issued; can be used to determine age of the JWT
-	// jti (JWT ID): Unique identifier; can be used to prevent the JWT from being replayed (allows a token to be used only once)
-	claims := struct {
-		jwt.RegisteredClaims
-		Roles []string
-	}{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   "12345678789",
-			Issuer:    "service project",
-			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(8760 * time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
-		},
-		Roles: []string{"ADMIN"},
-	}
-
-	method := jwt.GetSigningMethod(jwt.SigningMethodRS256.Name)
-
-	token := jwt.NewWithClaims(method, claims)
-	token.Header["kid"] = "54bb2165-71e1-41a6-af3e-7da4a0e1e2c1"
-
-	str, err := token.SignedString(privateKey)
-	if err != nil {
-		return fmt.Errorf("signing token: %w", err)
-	}
-
-	fmt.Println("****************")
-	fmt.Println(str)
-	fmt.Println("****************")
-
-	// -------------------------------------------------------------------------
-
-	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Name}))
-
-	keyFunc := func(t *jwt.Token) (interface{}, error) {
-		return &privateKey.PublicKey, nil
-	}
-
-	var claims2 struct {
-		jwt.RegisteredClaims
-		Roles []string
-	}
-
-	tkn, err := parser.ParseWithClaims(str, &claims2, keyFunc)
-	if err != nil {
-		return fmt.Errorf("parsing token: %w", err)
-	}
-
-	if !tkn.Valid {
-		return errors.New("signature failed")
-	}
-
-	fmt.Println("SIGNATURE VALIDATED")
-	fmt.Printf("%#v\n", claims2)
-	fmt.Println("****************")
-
-	// -------------------------------------------------------------------------
-
-	var claims3 struct {
-		jwt.RegisteredClaims
-		Roles []string
-	}
-
-	_, _, err = parser.ParseUnverified(str, &claims3)
-	if err != nil {
-		return fmt.Errorf("error parsing token unver: %w", err)
-	}
-
-	// Marshal the public key from the private key to PKIX.
-	asn1Bytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	if err != nil {
-		return fmt.Errorf("marshaling public key: %w", err)
-	}
-
-	// Construct a PEM block for the public key.
-	publicBlock := pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: asn1Bytes,
-	}
-
-	var b bytes.Buffer
-
-	// Write the public key to the public key file.
-	if err := pem.Encode(&b, &publicBlock); err != nil {
-		return fmt.Errorf("encoding to public file: %w", err)
-	}
-
-	input := map[string]any{
-		"Key":   b.String(),
-		"Token": str,
-	}
-
-	if err := opaPolicyEvaluation(context.Background(), opaAuthentication, input); err != nil {
-		return fmt.Errorf("authentication failed : %w", err)
-	}
-
-	fmt.Println("SIGNATURE VALIDATED BY REGO")
-	fmt.Println("****************")
-
-	return nil
-}
-
-func opaPolicyEvaluation(ctx context.Context, opaPolicy string, input any) error {
-	const opaPackage = "diegom7s.rego"
-	const rule string = "auth"
-
-	query := fmt.Sprintf("x = data.%s.%s", opaPackage, rule)
-
-	q, err := rego.New(
-		rego.Query(query),
-		rego.Module("policy.rego", opaPolicy),
-	).PrepareForEval(ctx)
-	if err != nil {
-		return err
-	}
-
-	results, err := q.Eval(ctx, rego.EvalInput(input))
-	if err != nil {
-		return fmt.Errorf("query: %w", err)
-	}
-
-	if len(results) == 0 {
-		return errors.New("no results")
-	}
-
-	result, ok := results[0].Bindings["x"].(bool)
-	if !ok || !result {
-		return fmt.Errorf("bindings results[%v] ok[%v]", results, ok)
+	default:
+		fmt.Println("migrate:    create the schema in the database")
+		fmt.Println("seed:       add data to the database")
+		fmt.Println("useradd:    add a new user to the database")
+		fmt.Println("users:      get a list of users from the database")
+		fmt.Println("genkey:     generate a set of private/public key files")
+		fmt.Println("gentoken:   generate a JWT for a user with claims")
+		fmt.Println("provide a command to get more help.")
+		return commands.ErrHelp
 	}
 
 	return nil
-}
-
-func genkey() (*rsa.PrivateKey, error) {
-
-	// Generate a new private key.
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, fmt.Errorf("generating key: %w", err)
-	}
-
-	// Create a file for the private key information in PEM form.
-	privateFile, err := os.Create("private.pem")
-	if err != nil {
-		return nil, fmt.Errorf("creating private file: %w", err)
-	}
-	defer privateFile.Close()
-
-	// Construct a PEM block for the private key.
-	privateBlock := pem.Block{
-		Type:  "PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
-	}
-
-	// Write the private key to the private key file.
-	if err := pem.Encode(privateFile, &privateBlock); err != nil {
-		return nil, fmt.Errorf("encoding to private file: %w", err)
-	}
-
-	// =========================================================================
-
-	// Create a file for the public key information in PEM form.
-	publicFile, err := os.Create("public.pem")
-	if err != nil {
-		return nil, fmt.Errorf("creating public file: %w", err)
-	}
-	defer publicFile.Close()
-
-	// Marshal the public key from the private key to PKIX.
-	asn1Bytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling public key: %w", err)
-	}
-
-	// Construct a PEM block for the public key.
-	publicBlock := pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: asn1Bytes,
-	}
-
-	// Write the public key to the public key file.
-	if err := pem.Encode(publicFile, &publicBlock); err != nil {
-		return nil, fmt.Errorf("encoding to public file: %w", err)
-	}
-
-	fmt.Println("private and public key files generated")
-
-	return privateKey, nil
 }
