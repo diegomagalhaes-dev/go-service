@@ -67,6 +67,7 @@ dev-brew:
 	brew list pgcli || brew install pgcli
 	brew list watch || brew instal watch
 	brew list hey || brew install hey
+	brew list vault || brew install vault
 
 dev-docker:
 	docker pull $(GOLANG)
@@ -78,6 +79,7 @@ dev-docker:
 	docker pull $(TEMPO)
 	docker pull $(LOKI)
 	docker pull $(PROMTAIL)
+	docker pull $(VAULT)
 
 # VERSION       := "0.0.1-$(shell git rev-parse --short HEAD)"
 
@@ -103,6 +105,7 @@ dev-up:
 		--name $(KIND_CLUSTER) \
 		--config zarf/k8s/dev/kind-config.yaml
 
+	kind load docker-image $(VAULT) --name $(KIND_CLUSTER)
 	kubectl config use-context kind-$(KIND_CLUSTER)
 	kubectl wait --timeout=120s --namespace=local-path-storage --for=condition=Available deployment/local-path-provisioner
 	kind load docker-image $(POSTGRES) --name $(KIND_CLUSTER)
@@ -117,6 +120,8 @@ dev-load:
 	kind load docker-image $(SERVICE_IMAGE) --name $(KIND_CLUSTER)
 
 dev-apply:
+	kustomize build zarf/k8s/dev/vault | kubectl apply -f -
+	
 	kustomize build zarf/k8s/dev/database | kubectl apply -f -
 	kubectl rollout status --namespace=$(NAMESPACE) --watch --timeout=120s sts/database
 	
@@ -141,14 +146,18 @@ dev-describe-deployment:
 dev-describe-sales:
 	kubectl describe pod --namespace=$(NAMESPACE) -l app=$(APP)
 
+dev-logs-vault:
+	kubectl logs --namespace=$(NAMESPACE) -l app=vault --all-containers=true -f --tail=100
+
 dev-logs-db:
 	kubectl logs --namespace=$(NAMESPACE) -l app=database --all-containers=true -f --tail=100
 
 dev-logs-init:
+	kubectl logs --namespace=$(NAMESPACE) -l app=$(APP) -f --tail=100 -c init-vault-system
+	kubectl logs --namespace=$(NAMESPACE) -l app=$(APP) -f --tail=100 -c init-vault-loadkeys
+	
 	kubectl logs --namespace=$(NAMESPACE) -l app=$(APP) -f --tail=100 -c init-migrate
 
-pgcli:
-	pgcli postgresql://postgres:postgres@localhost
 # ------------------------------------------------------------------------------
 
 dev-status:
@@ -200,6 +209,21 @@ migrate:
 
 seed: migrate
 	go run app/tooling/sales-admin/main.go seed
+
+vault:
+	go run app/tooling/sales-admin/main.go vault
+
+pgcli:
+	pgcli postgresql://postgres:postgres@localhost
+
+liveness:
+	curl -il http://localhost:3000/v1/liveness
+
+readiness:
+	curl -il http://localhost:3000/v1/readiness
+
+token-gen:
+	go run app/tooling/sales-admin/main.go gentoken 5cf37266-3473-4006-984f-9325122678b7 54bb2165-71e1-41a6-af3e-7da4a0e1e2c1
 
 # ==============================================================================
 # Hitting endpoints

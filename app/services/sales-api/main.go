@@ -18,8 +18,8 @@ import (
 	v1 "github.com/diegomagalhaes-dev/go-service/business/web/v1"
 	"github.com/diegomagalhaes-dev/go-service/business/web/v1/auth"
 	"github.com/diegomagalhaes-dev/go-service/business/web/v1/debug"
-	"github.com/diegomagalhaes-dev/go-service/foundation/keystore"
 	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
+	"github.com/diegomagalhaes-dev/go-service/foundation/vault"
 	"github.com/diegomagalhaes-dev/go-service/foundation/web"
 )
 
@@ -71,9 +71,14 @@ func run(ctx context.Context, log *logger.Logger) error {
 			DebugHost       string        `conf:"default:0.0.0.0:4000"`
 		}
 		Auth struct {
-			KeysFolder string `conf:"default:zarf/keys/"`
-			ActiveKID  string `conf:"default:54bb2165-71e1-41a6-af3e-7da4a0e1e2c1"`
-			Issuer     string `conf:"default:service project"`
+			// KeysFolder string `conf:"default:zarf/keys/"`
+			// ActiveKID  string `conf:"default:54bb2165-71e1-41a6-af3e-7da4a0e1e2c1"`
+			Issuer string `conf:"default:service project"`
+		}
+		Vault struct {
+			Address   string `conf:"default:http://vault-service.sales-system.svc.cluster.local:8200"`
+			MountPath string `conf:"default:secret"`
+			Token     string `conf:"default:mytoken,mask"`
 		}
 		DB struct {
 			User         string `conf:"default:postgres"`
@@ -143,14 +148,24 @@ func run(ctx context.Context, log *logger.Logger) error {
 	log.Info(ctx, "startup", "status", "initializing authentication support")
 
 	// Simple keystore versus using Vault.
-	ks, err := keystore.NewFS(os.DirFS(cfg.Auth.KeysFolder))
+	// ks, err := keystore.NewFS(os.DirFS(cfg.Auth.KeysFolder))
+	// if err != nil {
+	// 	return fmt.Errorf("reading keys: %w", err)
+	// }
+
+	vault, err := vault.New(vault.Config{
+		Address:   cfg.Vault.Address,
+		Token:     cfg.Vault.Token,
+		MountPath: cfg.Vault.MountPath,
+	})
 	if err != nil {
-		return fmt.Errorf("reading keys: %w", err)
+		return fmt.Errorf("constructing vault: %w", err)
 	}
 
 	authCfg := auth.Config{
 		Log:       log,
-		KeyLookup: ks,
+		DB:        db,
+		KeyLookup: vault,
 	}
 
 	auth, err := auth.New(authCfg)
