@@ -4,6 +4,7 @@ import (
 	_ "embed"
 )
 
+// These the current set of rules we have for auth.
 const (
 	RuleAuthenticate   = "auth"
 	RuleAny            = "ruleAny"
@@ -12,10 +13,12 @@ const (
 	RuleAdminOrSubject = "ruleAdminOrSubject"
 )
 
+// Package name of our rego code.
 const (
 	opaPackage string = "diegom7s.rego"
 )
 
+// Core OPA policies.
 var (
 	//go:embed rego/authentication.rego
 	opaAuthentication string
