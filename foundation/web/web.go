@@ -10,7 +10,11 @@ import (
 	"time"
 
 	"github.com/dimfeld/httptreemux/v5"
-	"github.com/google/uuid"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // A Handler is a type that handles a http request within our own little mini
@@ -21,17 +25,31 @@ type Handler func(ctx context.Context, w http.ResponseWriter, r *http.Request) e
 // object for each of our http handlers. Feel free to add any configuration
 // data/logic on this App struct.
 type App struct {
-	*httptreemux.ContextMux
+	mux      *httptreemux.ContextMux
+	otmux    http.Handler
 	shutdown chan os.Signal
 	mw       []Middleware
+	tracer   trace.Tracer
 }
 
 // NewApp creates an App value that handle a set of routes for the application.
-func NewApp(shutdown chan os.Signal, mw ...Middleware) *App {
+func NewApp(shutdown chan os.Signal, tracer trace.Tracer, mw ...Middleware) *App {
+
+	// Create an OpenTelemetry HTTP Handler which wraps our router. This will start
+	// the initial span and annotate it with information about the request/response.
+	//
+	// This is configured to use the W3C TraceContext standard to set the remote
+	// parent if a client request includes the appropriate headers.
+	// https://w3c.github.io/trace-context/
+
+	mux := httptreemux.NewContextMux()
+
 	return &App{
-		ContextMux: httptreemux.NewContextMux(),
-		shutdown:   shutdown,
-		mw:         mw,
+		mux:      mux,
+		otmux:    otelhttp.NewHandler(mux, "request"),
+		shutdown: shutdown,
+		mw:       mw,
+		tracer:   tracer,
 	}
 }
 
@@ -41,8 +59,42 @@ func (a *App) SignalShutdown() {
 	a.shutdown <- syscall.SIGTERM
 }
 
+// ServeHTTP implements the http.Handler interface. It's the entry point for
+// all http traffic and allows the opentelemetry mux to run first to handle
+// tracing. The opentelemetry mux then calls the application mux to handle
+// application traffic. This was set up on line 44 in the NewApp function.
+func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	a.otmux.ServeHTTP(w, r)
+}
+
+// EnableCORS enables CORS preflight requests to work in the middleware. It
+// prevents the MethodNotAllowedHandler from being called. This must be enabled
+// for the CORS middleware to work.
+func (a *App) EnableCORS(mw Middleware) {
+	a.mw = append(a.mw, mw)
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return Respond(ctx, w, "OK", http.StatusOK)
+	}
+	handler = wrapMiddleware(a.mw, handler)
+
+	a.mux.OptionsHandler = func(w http.ResponseWriter, r *http.Request, params map[string]string) {
+		ctx, span := a.startSpan(w, r)
+		defer span.End()
+
+		v := Values{
+			TraceID: span.SpanContext().TraceID().String(),
+			Tracer:  a.tracer,
+			Now:     time.Now().UTC(),
+		}
+		ctx = SetValues(ctx, &v)
+
+		handler(ctx, w, r)
+	}
+}
+
 // HandleNoMiddleware sets a handler function for a given HTTP method and path pair
-// to the application server mux. Does not include the application middl
+// to the application server mux. Does not include the application middleware.
 func (a *App) HandleNoMiddleware(method string, group string, path string, handler Handler) {
 	a.handle(method, group, path, handler)
 }
@@ -62,11 +114,15 @@ func (a *App) Handle(method string, group string, path string, handler Handler, 
 // to the application server mux.
 func (a *App) handle(method string, group string, path string, handler Handler) {
 	h := func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := a.startSpan(w, r)
+		defer span.End()
+
 		v := Values{
-			TraceID: uuid.NewString(),
+			TraceID: span.SpanContext().TraceID().String(),
+			Tracer:  a.tracer,
 			Now:     time.Now().UTC(),
 		}
-		ctx := SetValues(r.Context(), &v)
+		ctx = SetValues(ctx, &v)
 
 		if err := handler(ctx, w, r); err != nil {
 			if validateShutdown(err) {
@@ -81,7 +137,29 @@ func (a *App) handle(method string, group string, path string, handler Handler) 
 		finalPath = "/" + group + path
 	}
 
-	a.ContextMux.Handle(method, finalPath, h)
+	a.mux.Handle(method, finalPath, h)
+}
+
+// startSpan initializes the request by adding a span and writing otel
+// related information into the response writer for the response.
+func (a *App) startSpan(w http.ResponseWriter, r *http.Request) (context.Context, trace.Span) {
+	ctx := r.Context()
+
+	// There are times when the handler is called without a tracer, such
+	// as with tests. We need a span for the trace id.
+	span := trace.SpanFromContext(ctx)
+
+	// If a tracer exists, then replace the span for the one currently
+	// found in the context. This may have come from over the wire.
+	if a.tracer != nil {
+		ctx, span = a.tracer.Start(ctx, "pkg.web.handle")
+		span.SetAttributes(attribute.String("endpoint", r.RequestURI))
+	}
+
+	// Inject the trace information into the response.
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(w.Header()))
+
+	return ctx, span
 }
 
 // validateShutdown validates the error for special conditions that do not
@@ -96,6 +174,7 @@ func validateShutdown(err error) bool {
 	// https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/
 	// https://gosamples.dev/broken-pipe/
 	// https://gosamples.dev/connection-reset-by-peer/
+
 	switch {
 	case errors.Is(err, syscall.EPIPE):
 

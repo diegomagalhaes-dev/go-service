@@ -10,6 +10,7 @@ import (
 	"github.com/diegomagalhaes-dev/go-service/foundation/web"
 )
 
+// Logger writes information about the request to the logs.
 func Logger(log *logger.Logger) web.Middleware {
 	m := func(handler web.Handler) web.Handler {
 		h := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {

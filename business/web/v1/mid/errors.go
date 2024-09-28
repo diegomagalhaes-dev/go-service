@@ -11,11 +11,18 @@ import (
 	"github.com/diegomagalhaes-dev/go-service/foundation/web"
 )
 
+// Errors handles errors coming out of the call chain. It detects normal
+// application errors which are used to respond to the client in a uniform way.
+// Unexpected errors (status >= 500) are logged.
 func Errors(log *logger.Logger) web.Middleware {
 	m := func(handler web.Handler) web.Handler {
 		h := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 			if err := handler(ctx, w, r); err != nil {
 				log.Error(ctx, "message", "msg", err)
+
+				ctx, span := web.AddSpan(ctx, "business.web.request.mid.error")
+				span.RecordError(err)
+				span.End()
 
 				var er response.ErrorDocument
 				var status int
@@ -56,6 +63,8 @@ func Errors(log *logger.Logger) web.Middleware {
 					return err
 				}
 
+				// If we receive the shutdown err we need to return it
+				// back to the base handler to shut down the service.
 				if web.IsShutdown(err) {
 					return err
 				}
