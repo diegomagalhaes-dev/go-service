@@ -12,12 +12,13 @@ import (
 
 	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
 	"github.com/diegomagalhaes-dev/go-service/foundation/web"
-	"github.com/jackc/pgx/v5/pgconn"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"go.opentelemetry.io/otel/attribute"
 )
 
+// lib/pq errorCodeNames
+// https://github.com/lib/pq/blob/master/error.go#L178
 const (
 	uniqueViolation = "23505"
 	undefinedTable  = "42P01"
@@ -64,7 +65,7 @@ func Open(cfg Config) (*sqlx.DB, error) {
 		RawQuery: q.Encode(),
 	}
 
-	db, err := sqlx.Open("pgx", u.String())
+	db, err := sqlx.Open("postgres", u.String())
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +128,7 @@ func NamedExecContext(ctx context.Context, log *logger.Logger, db sqlx.ExtContex
 	defer span.End()
 
 	if _, err := sqlx.NamedExecContext(ctx, db, query, data); err != nil {
-		if pqerr, ok := err.(*pgconn.PgError); ok {
+		if pqerr, ok := err.(*pq.Error); ok {
 			switch pqerr.Code {
 			case undefinedTable:
 				return ErrUndefinedTable
@@ -194,7 +195,7 @@ func namedQuerySlice[T any](ctx context.Context, log *logger.Logger, db sqlx.Ext
 	}
 
 	if err != nil {
-		if pqerr, ok := err.(*pgconn.PgError); ok && pqerr.Code == undefinedTable {
+		if pqerr, ok := err.(*pq.Error); ok && pqerr.Code == undefinedTable {
 			return ErrUndefinedTable
 		}
 		return err
@@ -266,7 +267,7 @@ func namedQueryStruct(ctx context.Context, log *logger.Logger, db sqlx.ExtContex
 	}
 
 	if err != nil {
-		if pqerr, ok := err.(*pgconn.PgError); ok && pqerr.Code == undefinedTable {
+		if pqerr, ok := err.(*pq.Error); ok && pqerr.Code == undefinedTable {
 			return ErrUndefinedTable
 		}
 		return err

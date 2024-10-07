@@ -40,7 +40,7 @@ metadata:
   namespace: sales-system
 subsets:
   - addresses:
-        - ip: 168.228.176.21 # ifconfig | grep 192
+        - ip: 192.168.1.92 # ifconfig | grep 192
     ports:
       - port: 5432
         name: database-service
