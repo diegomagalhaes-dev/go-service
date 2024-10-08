@@ -10,7 +10,7 @@ import (
 	"runtime/debug"
 	"testing"
 
-	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/handlers"
+	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/cmd/all"
 	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/handlers/usersummarygrp"
 	"github.com/diegomagalhaes-dev/go-service/business/core/product"
 	"github.com/diegomagalhaes-dev/go-service/business/core/user"
@@ -51,7 +51,7 @@ func Test_UserSummary(t *testing.T) {
 			Log:      test.Log,
 			Auth:     test.V1.Auth,
 			DB:       test.DB,
-		}, handlers.Routes{}),
+		}, all.Routes()),
 		userToken:  test.TokenV1("user@example.com", "gophers"),
 		adminToken: test.TokenV1("admin@example.com", "gophers"),
 	}

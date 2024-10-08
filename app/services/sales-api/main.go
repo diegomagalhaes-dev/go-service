@@ -1,242 +1,44 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"expvar"
-	"fmt"
-	"net/http"
 	"os"
-	"os/signal"
-	"runtime"
-	"syscall"
-	"time"
 
-	"github.com/ardanlabs/conf/v3"
-	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/handlers"
-	db "github.com/diegomagalhaes-dev/go-service/business/data/dbsql/pgx"
-	v1 "github.com/diegomagalhaes-dev/go-service/business/web/v1"
-	"github.com/diegomagalhaes-dev/go-service/business/web/v1/auth"
-	"github.com/diegomagalhaes-dev/go-service/business/web/v1/debug"
-	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
-	"github.com/diegomagalhaes-dev/go-service/foundation/vault"
-	"github.com/diegomagalhaes-dev/go-service/foundation/web"
+	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/cmd"
+	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/cmd/all"
+	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/cmd/crud"
+	"github.com/diegomagalhaes-dev/go-service/app/services/sales-api/v1/cmd/reporting"
 )
 
 var build = "develop"
+var routes = "all" // go build -ldflags "-X main.routes=crud"
 
 func main() {
-	var log *logger.Logger
 
-	events := logger.Events{
-		Error: func(ctx context.Context, r logger.Record) {
-			log.Info(ctx, "******* SEND ALERT ******")
-		},
-	}
+	// The idea here is that we can build different versions of the binary
+	// with different sets of exposed web APIs. By default we build a single
+	// an instance with all the web APIs.
+	//
+	// Here is the scenario. It would be nice to build two binaries, one for the
+	// transactional APIs (CRUD) and one for the reporting APIs. This would allow
+	// the system to run two instances of the database. One instance tuned for the
+	// transactional database calls and the other tuned for the reporting calls.
+	// Tuning meaning indexing and memory requirements. The two databases can be
+	// kept in sync with replication.
 
-	traceIDFunc := func(ctx context.Context) string {
-		return web.GetTraceID(ctx)
-	}
-
-	log = logger.NewWithEvents(os.Stdout, logger.LevelInfo, "SALES-API", traceIDFunc, events)
-
-	// -------------------------------------------------------------------------
-
-	ctx := context.Background()
-
-	if err := run(ctx, log); err != nil {
-		log.Error(ctx, "startup", "msg", err)
-		return
-	}
-}
-
-func run(ctx context.Context, log *logger.Logger) error {
-
-	// -------------------------------------------------------------------------
-	// GOMAXPROCS
-
-	log.Info(ctx, "startup", "GOMAXPROCS", runtime.GOMAXPROCS(0), "build", build)
-
-	// -------------------------------------------------------------------------
-	// Configuration
-
-	cfg := struct {
-		conf.Version
-		Web struct {
-			ReadTimeout     time.Duration `conf:"default:5s"`
-			WriteTimeout    time.Duration `conf:"default:10s"`
-			IdleTimeout     time.Duration `conf:"default:120s"`
-			ShutdownTimeout time.Duration `conf:"default:20s,mask"`
-			APIHost         string        `conf:"default:0.0.0.0:3000"`
-			DebugHost       string        `conf:"default:0.0.0.0:4000"`
+	switch routes {
+	case "all":
+		if err := cmd.Main(build, all.Routes()); err != nil {
+			os.Exit(1)
 		}
-		Auth struct {
-			// KeysFolder string `conf:"default:zarf/keys/"`
-			// ActiveKID  string `conf:"default:54bb2165-71e1-41a6-af3e-7da4a0e1e2c1"`
-			Issuer string `conf:"default:service project"`
+
+	case "crud":
+		if err := cmd.Main(build, crud.Routes()); err != nil {
+			os.Exit(1)
 		}
-		Vault struct {
-			Address   string `conf:"default:http://vault-service.sales-system.svc.cluster.local:8200"`
-			MountPath string `conf:"default:secret"`
-			Token     string `conf:"default:mytoken,mask"`
-		}
-		DB struct {
-			User         string `conf:"default:postgres"`
-			Password     string `conf:"default:postgres,mask"`
-			Host         string `conf:"default:database-service.sales-system.svc.cluster.local"`
-			Name         string `conf:"default:postgres"`
-			MaxIdleConns int    `conf:"default:2"`
-			MaxOpenConns int    `conf:"default:0"`
-			DisableTLS   bool   `conf:"default:true"`
-		}
-	}{
-		Version: conf.Version{
-			Build: build,
-			Desc:  "diegom7s",
-		},
-	}
 
-	const prefix = "SALES"
-	help, err := conf.Parse(prefix, &cfg)
-	if err != nil {
-		if errors.Is(err, conf.ErrHelpWanted) {
-			fmt.Println(help)
-			return nil
-		}
-		return fmt.Errorf("parsing config: %w", err)
-	}
-
-	// -------------------------------------------------------------------------
-	// App Starting
-
-	log.Info(ctx, "starting service", "version", build)
-	defer log.Info(ctx, "shutdown complete")
-
-	out, err := conf.String(&cfg)
-	if err != nil {
-		return fmt.Errorf("generating config for output: %w", err)
-	}
-	log.Info(ctx, "startup", "config", out)
-
-	expvar.NewString("build").Set(build)
-
-	// -------------------------------------------------------------------------
-	// Initialize database support
-
-	log.Info(ctx, "startup", "status", "initializing database support", "host", cfg.DB.Host)
-
-	db, err := db.Open(db.Config{
-		User:         cfg.DB.User,
-		Password:     cfg.DB.Password,
-		Host:         cfg.DB.Host,
-		Name:         cfg.DB.Name,
-		MaxIdleConns: cfg.DB.MaxIdleConns,
-		MaxOpenConns: cfg.DB.MaxOpenConns,
-		DisableTLS:   cfg.DB.DisableTLS,
-	})
-	if err != nil {
-		return fmt.Errorf("connecting to db: %w", err)
-	}
-	defer func() {
-		log.Info(ctx, "shutdown", "status", "stopping database support", "host", cfg.DB.Host)
-		db.Close()
-	}()
-
-	// -------------------------------------------------------------------------
-	// Initialize authentication support
-
-	log.Info(ctx, "startup", "status", "initializing authentication support")
-
-	// Simple keystore versus using Vault.
-	// ks, err := keystore.NewFS(os.DirFS(cfg.Auth.KeysFolder))
-	// if err != nil {
-	// 	return fmt.Errorf("reading keys: %w", err)
-	// }
-
-	vault, err := vault.New(vault.Config{
-		Address:   cfg.Vault.Address,
-		Token:     cfg.Vault.Token,
-		MountPath: cfg.Vault.MountPath,
-	})
-	if err != nil {
-		return fmt.Errorf("constructing vault: %w", err)
-	}
-
-	authCfg := auth.Config{
-		Log:       log,
-		DB:        db,
-		KeyLookup: vault,
-	}
-
-	auth, err := auth.New(authCfg)
-	if err != nil {
-		return fmt.Errorf("constructing auth: %w", err)
-	}
-
-	// -------------------------------------------------------------------------
-	// Start Debug Service
-
-	go func() {
-		log.Info(ctx, "startup", "status", "debug v1 router started", "host", cfg.Web.DebugHost)
-
-		if err := http.ListenAndServe(cfg.Web.DebugHost, debug.Mux()); err != nil {
-			log.Error(ctx, "shutdown", "status", "debug v1 router closed", "host", cfg.Web.DebugHost, "msg", err)
-		}
-	}()
-
-	// -------------------------------------------------------------------------
-	// Start API Service
-
-	log.Info(ctx, "startup", "status", "initializing V1 API support")
-
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
-
-	cfgMux := v1.APIMuxConfig{
-		Build:    build,
-		Shutdown: shutdown,
-		Log:      log,
-		Auth:     auth,
-		DB:       db,
-	}
-
-	apiMux := v1.APIMux(cfgMux, handlers.Routes{})
-
-	api := http.Server{
-		Addr:         cfg.Web.APIHost,
-		Handler:      apiMux,
-		ReadTimeout:  cfg.Web.ReadTimeout,
-		WriteTimeout: cfg.Web.WriteTimeout,
-		IdleTimeout:  cfg.Web.IdleTimeout,
-		ErrorLog:     logger.NewStdLogger(log, logger.LevelError),
-	}
-
-	serverErrors := make(chan error, 1)
-
-	go func() {
-		log.Info(ctx, "startup", "status", "api router started", "host", api.Addr)
-		serverErrors <- api.ListenAndServe()
-	}()
-
-	// -------------------------------------------------------------------------
-	// Shutdown
-
-	select {
-	case err := <-serverErrors:
-		return fmt.Errorf("server error: %w", err)
-
-	case sig := <-shutdown:
-		log.Info(ctx, "shutdown", "status", "shutdown started", "signal", sig)
-		defer log.Info(ctx, "shutdown", "status", "shutdown complete", "signal", sig)
-
-		ctx, cancel := context.WithTimeout(ctx, cfg.Web.ShutdownTimeout)
-		defer cancel()
-
-		if err := api.Shutdown(ctx); err != nil {
-			api.Close()
-			return fmt.Errorf("could not stop server gracefully: %w", err)
+	case "reporting":
+		if err := cmd.Main(build, reporting.Routes()); err != nil {
+			os.Exit(1)
 		}
 	}
-
-	return nil
 }
