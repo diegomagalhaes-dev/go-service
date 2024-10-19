@@ -22,6 +22,13 @@ import (
 	"github.com/diegomagalhaes-dev/go-service/foundation/logger"
 	"github.com/diegomagalhaes-dev/go-service/foundation/vault"
 	"github.com/diegomagalhaes-dev/go-service/foundation/web"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 )
 
 // Main is the entry point for the running instance.
@@ -90,6 +97,11 @@ func run(ctx context.Context, log *logger.Logger, build string, routeAdder v1.Ro
 			MaxIdleConns int    `conf:"default:2"`
 			MaxOpenConns int    `conf:"default:0"`
 			DisableTLS   bool   `conf:"default:true"`
+		}
+		Tempo struct {
+			ReporterURI string  `conf:"default:tempo.sales-system.svc.cluster.local:4317"`
+			ServiceName string  `conf:"default:sales-api"`
+			Probability float64 `conf:"default:1"` // Shouldn't use a high value in non-developer systems. 0.05 should be enough for most systems. Some might want to have this even lower
 		}
 	}{
 		Version: conf.Version{
@@ -176,6 +188,23 @@ func run(ctx context.Context, log *logger.Logger, build string, routeAdder v1.Ro
 	}
 
 	// -------------------------------------------------------------------------
+	// Start Tracing Support
+
+	log.Info(ctx, "startup", "status", "initializing OT/Tempo tracing support")
+
+	traceProvider, err := startTracing(
+		cfg.Tempo.ServiceName,
+		cfg.Tempo.ReporterURI,
+		cfg.Tempo.Probability,
+	)
+	if err != nil {
+		return fmt.Errorf("starting tracing: %w", err)
+	}
+	defer traceProvider.Shutdown(context.Background())
+
+	tracer := traceProvider.Tracer("service")
+
+	// -------------------------------------------------------------------------
 	// Start Debug Service
 
 	go func() {
@@ -207,6 +236,7 @@ func run(ctx context.Context, log *logger.Logger, build string, routeAdder v1.Ro
 		Log:      log,
 		Auth:     auth,
 		DB:       db,
+		Tracer:   tracer,
 	}
 
 	apiMux := v1.APIMux(cfgMux, routeAdder, v1.WithCORS("*"))
@@ -254,4 +284,54 @@ func run(ctx context.Context, log *logger.Logger, build string, routeAdder v1.Ro
 	}
 
 	return nil
+}
+
+// =============================================================================
+
+// startTracing configure open telemetry to be used with Grafana Tempo.
+func startTracing(serviceName string, reporterURI string, probability float64) (*trace.TracerProvider, error) {
+
+	// WARNING: The current settings are using defaults which may not be
+	// compatible with your project. Please review the documentation for
+	// opentelemetry.
+
+	exporter, err := otlptrace.New(
+		context.Background(),
+		otlptracegrpc.NewClient(
+			otlptracegrpc.WithInsecure(), // This should be configurable
+			otlptracegrpc.WithEndpoint(reporterURI),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating new exporter: %w", err)
+	}
+
+	traceProvider := trace.NewTracerProvider(
+		trace.WithSampler(trace.TraceIDRatioBased(probability)),
+		trace.WithBatcher(exporter,
+			trace.WithMaxExportBatchSize(trace.DefaultMaxExportBatchSize),
+			trace.WithBatchTimeout(trace.DefaultScheduleDelay*time.Millisecond),
+			trace.WithMaxExportBatchSize(trace.DefaultMaxExportBatchSize),
+		),
+		trace.WithResource(
+			resource.NewWithAttributes(
+				semconv.SchemaURL,
+				semconv.ServiceNameKey.String(serviceName),
+			),
+		),
+	)
+
+	// We must set this provider as the global provider for things to work,
+	// but we pass this provider around the program where needed to collect
+	// our traces.
+	otel.SetTracerProvider(traceProvider)
+
+	// Chooses the HTTP header formats we extract incoming trace contexts from,
+	// and the headers we set in outgoing requests.
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	return traceProvider, nil
 }
