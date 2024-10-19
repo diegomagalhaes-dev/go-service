@@ -15,13 +15,20 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       hostNetwork: true
       containers:
-      - name: sales-api
-        resources:
-          requests:
-            cpu: "500m" # I need access to 1/2 core on the node.
-          limits:
-            cpu: "500m" # Execute instructions 50ms/100ms on my 1 core.
+        - name: sales-api
+          resources:
+            requests:
+              cpu: "500m"
+            limits:
+              cpu: "500m"
 
-        volumeMounts:
-          - name: vault
-            mountPath: /vault
+          volumeMounts:
+            - name: vault
+              mountPath: /vault
+
+        - name: metrics
+          resources:
+            requests:
+              cpu: "100m"
+            limits:
+              cpu: "100m"

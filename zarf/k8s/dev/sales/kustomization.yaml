@@ -9,6 +9,9 @@ patches:
 - path: ./dev-sales-patch-service.yaml
 - path: ./dev-sales-vault-patch.yaml
 images:
+- name: metrics-image
+  newName: golang/service/sales-api-metrics
+  newTag: 0.0.1
 - name: service-image
   newName: golang/service/sales-api
   newTag: 0.0.1
